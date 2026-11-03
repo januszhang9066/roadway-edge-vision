@@ -1,0 +1,32 @@
+[package]
+name = "rust_vision"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "aoi"
+path = "src/main.rs"
+
+[dependencies]
+# ONNX Runtime Rust 绑定。
+# 用 load-dynamic 而非 download-binaries:
+#   - 预编译的 libonnxruntime.a 引用了 CoreML 内部符号 __isPlatformVersionAtLeast,
+#     CommandLineTools SDK(无完整 Xcode)的 .tbd 不导出它 → 链接失败
+#   - 动态加载系统 dylib 更贴近产线工控机的真实部署方式(装 onnxruntime runtime 包即可)
+ort = { version = "=2.0.0-rc.14", default-features = false, features = [
+    "std",
+    "ndarray",
+    "load-dynamic",
+    "api-20",
+    "coreml",     # Apple Silicon GPU/ANE 加速
+    "xnnpack",    # 纯 CPU 优化
+    "directml",   # Windows 核显/独显加速(工控机常用)
+] }
+# 图片解码(JPEG + PNG 都要 —— MVTecAD 样本是 .png,产线相机输出常是 .jpg)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

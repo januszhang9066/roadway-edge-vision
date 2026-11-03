@@ -1,0 +1,35 @@
+# Roadway AOI 配置文件
+# 工控机现场改这里,不用重新编译
+
+[model]
+# 模型文件路径(相对本文件目录)
+path = "model.onnx"
+
+[detection]
+# 判定阈值 —— 上产线前必须用 100+ NG 样本重新标定!
+# 当前值来自 anomalib 默认值,实际分数在 30000 量级,此阈值会全判 NG
+threshold = 43.7255
+
+# 执行后端:cpu(Windows 通用) | coreml(仅 Apple Silicon) | xnnpack
+ep = "cpu"
+
+# 线程数,0 = 自动(按 CPU 核心数)
+threads = 0
+
+[input]
+# 相机图片目录(轮询新文件)
+watch_dir = "watch"
+
+# 采集间隔(毫秒)
+poll_interval_ms = 500
+
+[output]
+# 热图导出目录(设为空则不导出)
+dump_amap_dir = ""
+
+# 结果 CSV 路径
+result_csv = "results.csv"
+
+[logging]
+# 日志级别:error | warn | info | debug
+level = "info"
