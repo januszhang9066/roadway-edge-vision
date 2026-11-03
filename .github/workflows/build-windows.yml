@@ -13,8 +13,21 @@ permissions:
 
 jobs:
   build-windows:
-    name: aoi.exe (x86_64 Windows)
+    name: aoi.exe (${{ matrix.name }})
     runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # dynamic CRT:exe 较小,需要客户机上有 VC++ 运行库(部署脚本会检查)
+          - name: msvc
+            rustflags: "-C link-arg=/DYNAMICBASE -C link-arg=/NXCOMPAT"
+            artifact: aoi-windows-x64
+          # static CRT:exe 自带 CRT,客户机什么都不用装 —— 工业现场最省心
+          - name: msvc-static-crt
+            rustflags: "-C target-feature=+crt-static -C link-arg=/DYNAMICBASE -C link-arg=/NXCOMPAT"
+            artifact: aoi-windows-x64-static
 
     steps:
       - name: Checkout
@@ -32,20 +45,19 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.name }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Build
         run: cargo build --release --target x86_64-pc-windows-msvc
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
 
       - name: Verify PE headers
         shell: pwsh
         run: |
           $exe = "target\x86_64-pc-windows-msvc\release\aoi.exe"
           if (-not (Test-Path $exe)) { throw "exe not found" }
-          $size = (Get-Item $exe).Length
-          Write-Host "aoi.exe size: $size bytes"
-          # 确认是 PE32+ x64,且开启了 ASLR + DEP
           $bytes = [System.IO.File]::ReadAllBytes($exe)
           if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "not an MZ executable" }
           $peOff = [BitConverter]::ToInt32($bytes, 0x3C)
@@ -55,21 +67,17 @@ jobs:
           $subsystem = [BitConverter]::ToUInt16($bytes, $peOff + 24 + 68)
           $chars = [BitConverter]::ToUInt16($bytes, $peOff + 22)
           Write-Host "machine=0x$($machine.ToString('X')) subsystem=$subsystem characteristics=0x$($chars.ToString('X'))"
-          if (($chars -band 0x40) -eq 0) { Write-Warning "DYNAMIC_BASE (ASLR) not set" }
-          if (($chars -band 0x100) -eq 0) { Write-Warning "NX_COMPAT (DEP) not set" }
-          # 确认 onnxruntime 是动态加载(不应出现在导入表里)
-          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
-          Write-Host "OK: PE32+ x64 console executable verified"
+          if (($chars -band 0x40) -eq 0) { throw "DYNAMIC_BASE (ASLR) not set" }
+          if (($chars -band 0x100) -eq 0) { throw "NX_COMPAT (DEP) not set" }
+          Write-Host "OK: PE32+ x64 console, ASLR+DEP enabled"
 
       - name: Package
         shell: pwsh
         run: |
-          $dir = "dist\aoi-windows-x64"
+          $dir = "dist\${{ matrix.artifact }}"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           Copy-Item "target\x86_64-pc-windows-msvc\release\aoi.exe" $dir
-          # 附上部署脚本与配置(不含模型/凭证)
           if (Test-Path "deploy") { Copy-Item "deploy\*" $dir -Recurse -Force }
-          # 生成校验和
           $hash = (Get-FileHash "$dir\aoi.exe" -Algorithm SHA256).Hash.ToLower()
           "$hash  aoi.exe" | Out-File "$dir\aoi.exe.sha256" -Encoding ascii
           Write-Host "SHA256: $hash"
@@ -77,15 +85,16 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aoi-windows-x64
-          path: dist/aoi-windows-x64/
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}/
           retention-days: 90
 
       - name: Create release (tag builds only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/aoi-windows-x64/*
+          files: |
+            dist/${{ matrix.artifact }}/*
           generate_release_notes: true
 
   build-linux:
