@@ -65,7 +65,9 @@ jobs:
           $machine = [BitConverter]::ToUInt16($bytes, $peOff + 4)
           if ($machine -ne 0x8664) { throw "not x86-64 (got 0x$($machine.ToString('X')))" }
           $subsystem = [BitConverter]::ToUInt16($bytes, $peOff + 24 + 68)
-          $chars = [BitConverter]::ToUInt16($bytes, $peOff + 22)
+          # DllCharacteristics 在 Optional Header 里,偏移 = 24 + 70(PE32+)
+          # 注意:pe+22 是 COFF File Header 的 Characteristics,完全不同的字段,读错会误判
+          $chars = [BitConverter]::ToUInt16($bytes, $peOff + 24 + 70)
           Write-Host "machine=0x$($machine.ToString('X')) subsystem=$subsystem characteristics=0x$($chars.ToString('X'))"
           if (($chars -band 0x40) -eq 0) { throw "DYNAMIC_BASE (ASLR) not set" }
           if (($chars -band 0x100) -eq 0) { throw "NX_COMPAT (DEP) not set" }
